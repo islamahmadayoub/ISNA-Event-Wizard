@@ -402,7 +402,8 @@
                     <!-- Event__c — clickable, opens the record page; Copy ID beside it -->
                     <div class="success-event-line">
                         <div class="success-record-row success-record-link" role="link" tabindex="0"
-                             title="Open Event record" onclick={navigateToEvent}>
+                             title="Open Event record" data-id={publishedEventId} data-object="Event__c"
+                             onclick={navigateToRecord}>
                             <div class="success-record-icon" style="background:#003777">📅</div>
                             <div class="success-record-info">
                                 <span class="success-record-type">Event__c</span>
@@ -411,16 +412,24 @@
                             <span class="success-record-id">{publishedEventId}</span>
                             <span class="success-record-arrow">›</span>
                         </div>
-                        <button class="btn-copy-id" onclick={copyEventId} title="Copy Event Id">{copyIdLabel}</button>
+                        <button class="btn-copy-id" data-id={publishedEventId} onclick={copyRecordId}
+                                title="Copy Event Id">{copyEventIdLabel}</button>
                     </div>
-                    <!-- Campaign -->
-                    <div class="success-record-row">
-                        <div class="success-record-icon" style="background:#229492">📣</div>
-                        <div class="success-record-info">
-                            <span class="success-record-type">Campaign</span>
-                            <span class="success-record-name">{publishedCampaignName}</span>
+                    <!-- Campaign — clickable, opens the record page; Copy ID beside it -->
+                    <div class="success-event-line">
+                        <div class="success-record-row success-record-link" role="link" tabindex="0"
+                             title="Open Campaign record" data-id={publishedCampaignId} data-object="Campaign"
+                             onclick={navigateToRecord}>
+                            <div class="success-record-icon" style="background:#229492">📣</div>
+                            <div class="success-record-info">
+                                <span class="success-record-type">Campaign</span>
+                                <span class="success-record-name">{publishedCampaignName}</span>
+                            </div>
+                            <span class="success-record-id">{publishedCampaignId}</span>
+                            <span class="success-record-arrow">›</span>
                         </div>
-                        <span class="success-record-id">{publishedCampaignId}</span>
+                        <button class="btn-copy-id" data-id={publishedCampaignId} onclick={copyRecordId}
+                                title="Copy Campaign Id">{copyCampaignIdLabel}</button>
                     </div>
                     <!-- Track__c rows -->
                     <div class="success-record-row">
@@ -443,7 +452,10 @@
                         </a>
                     </template>
                     <template lwc:if={asanaError}>
-                        <div class="save-error-banner">{asanaError}</div>
+                        <div class="warning-banner">
+                            <span class="warning-icon">⚠</span>
+                            <span>{asanaError}</span>
+                        </div>
                     </template>
                 </div>
 

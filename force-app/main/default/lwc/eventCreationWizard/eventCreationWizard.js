@@ -39,7 +39,7 @@ export default class EventCreationWizard extends NavigationMixin(LightningElemen
     @track publishedCampaignName = '';
     @track asanaTaskUrl          = '';
     @track asanaError            = '';
-    @track idCopied              = false;
+    @track copiedId              = '';   // Id most recently copied (drives "✓ Copied")
 
     // ── Step 1 – Event fields ─────────────────────────────────────────────────
     @track eventName          = '';
@@ -572,18 +572,19 @@ export default class EventCreationWizard extends NavigationMixin(LightningElemen
     }
 
     // ── Success screen actions ────────────────────────────────────────────────
-    /** Opens the newly created Event__c record page. */
-    navigateToEvent() {
+    /** Opens the record page for the clicked success card (data-id / data-object). */
+    navigateToRecord(e) {
+        const { id, object } = e.currentTarget.dataset;
         this[NavigationMixin.Navigate]({
             type: 'standard__recordPage',
-            attributes: { recordId: this.publishedEventId, objectApiName: 'Event__c', actionName: 'view' }
+            attributes: { recordId: id, objectApiName: object, actionName: 'view' }
         });
     }
 
-    /** Copies the Event Id to the clipboard, falling back to execCommand. */
-    async copyEventId(e) {
+    /** Copies the clicked button's data-id to the clipboard, falling back to execCommand. */
+    async copyRecordId(e) {
         e.stopPropagation();
-        const id = this.publishedEventId;
+        const id = e.currentTarget.dataset.id;
         try {
             await navigator.clipboard.writeText(id);
         } catch (err) {
@@ -596,12 +597,14 @@ export default class EventCreationWizard extends NavigationMixin(LightningElemen
             document.execCommand('copy');
             ta.remove();
         }
-        this.idCopied = true;
+        this.copiedId = id;
         // eslint-disable-next-line @lwc/lwc/no-async-operation
-        setTimeout(() => { this.idCopied = false; }, 2000);
+        setTimeout(() => { if (this.copiedId === id) this.copiedId = ''; }, 2000);
     }
 
-    get copyIdLabel() { return this.idCopied ? '✓ Copied' : '⧉ Copy ID'; }
+    _copyLabel(id)            { return this.copiedId && this.copiedId === id ? '✓ Copied' : '⧉ Copy ID'; }
+    get copyEventIdLabel()    { return this._copyLabel(this.publishedEventId); }
+    get copyCampaignIdLabel() { return this._copyLabel(this.publishedCampaignId); }
 
     // ── Reset ─────────────────────────────────────────────────────────────────
     handleReset() {
@@ -629,7 +632,7 @@ export default class EventCreationWizard extends NavigationMixin(LightningElemen
         this.publishedCampaignName = '';
         this.asanaTaskUrl          = '';
         this.asanaError            = '';
-        this.idCopied              = false;
+        this.copiedId              = '';
         this.tracks =[{ id: _nextId++, name: '', price: '', tickets: '1', description: '' }];
     }
 

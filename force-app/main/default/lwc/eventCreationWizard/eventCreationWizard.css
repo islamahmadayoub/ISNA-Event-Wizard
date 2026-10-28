@@ -720,3 +720,17 @@ button:disabled {
     border-top: 1px solid #e5e7eb;
     padding-top: 24px;
 }
+
+/* ── Warning banner (non-blocking, e.g. Asana ticket not created) ────────── */
+.warning-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #92400e;
+}
+.warning-icon { flex-shrink: 0; color: #d97706; font-weight: 700; }
