@@ -36,14 +36,28 @@ private class eventCreationWizardHandlerTest {
         return vi;
     }
 
+    /**
+     * "yyyy-MM-ddTHH:mm[:ss]" string `days` days from today. Event dates must be
+     * relative: a validation rule rejects Event_Start_Date__c in the past.
+     */
+    private static String futureIso(Integer days, String timePart) {
+        return String.valueOf(Date.today().addDays(days)) + 'T' + timePart;
+    }
+
+    /** Datetime `days` days from today at the given hour. */
+    private static Datetime futureDt(Integer days, Integer hour) {
+        Date d = Date.today().addDays(days);
+        return Datetime.newInstance(d.year(), d.month(), d.day(), hour, 0, 0);
+    }
+
     /** Minimal valid EventInput (no optional FK fields). */
     private static eventCreationWizardHandler.EventInput makeEventInput(String name) {
         eventCreationWizardHandler.EventInput ei = new eventCreationWizardHandler.EventInput();
         ei.name          = name;
         ei.eventType     = 'Annual Convention';
         ei.eventStatus   = 'Active';
-        ei.startDate     = '2026-09-01T09:00';
-        ei.endDate       = '2026-09-04T18:00:00';
+        ei.startDate     = futureIso(30, '09:00');
+        ei.endDate       = futureIso(33, '18:00:00');
         ei.eventWebsite  = 'https://isna.net/convention';
         return ei;
     }
@@ -117,7 +131,7 @@ private class eventCreationWizardHandlerTest {
         eventCreationWizardHandler.EventInput ei = makeEventInput('ISNA Annual Convention 2026');
         ei.venueId             = v.Id;
         ei.parentEventId       = parent.Id;
-        ei.refundDeadline      = '2026-08-01';
+        ei.refundDeadline      = String.valueOf(Date.today().addDays(20));
         ei.hotelReservationUrl = 'https://hyatt.com/isna';
 
         Test.startTest();
@@ -132,7 +146,7 @@ private class eventCreationWizardHandlerTest {
         System.assertEquals('Active',                      evt.Event_Status__c);
         System.assertEquals(v.Id,                          evt.Venue__c);
         System.assertEquals(parent.Id,                     evt.Parent_Event__c);
-        System.assertEquals(Date.valueOf('2026-08-01'),     evt.Cancellation_Refund_Deadline__c);
+        System.assertEquals(Date.today().addDays(20),       evt.Cancellation_Refund_Deadline__c);
         System.assertEquals('https://isna.net/convention', evt.Event_Website__c);
     }
 
@@ -154,8 +168,8 @@ private class eventCreationWizardHandlerTest {
     static void testCreateEvent_datetimeWith19Chars() {
         // Exercises the 19-char ISO branch in parseDatetime
         eventCreationWizardHandler.EventInput ei = makeEventInput('Full Seconds Event');
-        ei.startDate = '2026-10-15T08:30:00';
-        ei.endDate   = '2026-10-18T20:00:00';
+        ei.startDate = futureIso(45, '08:30:00');
+        ei.endDate   = futureIso(48, '20:00:00');
 
         Test.startTest();
         String eventId = eventCreationWizardHandler.createEvent(JSON.serialize(ei));
@@ -293,7 +307,7 @@ private class eventCreationWizardHandlerTest {
         Event__c e = new Event__c(Name = 'Wire Test Active Event',
                                    Event_Status__c   = 'Active',
                                    Event_Type__c     = 'Webinar',
-                                   Event_Start_Date__c = Datetime.newInstance(2026, 9, 1, 9, 0, 0));
+                                   Event_Start_Date__c = futureDt(30, 9));
         insert e;
 
         Test.startTest();
@@ -463,6 +477,135 @@ private class eventCreationWizardHandlerTest {
                 System.assertEquals('ISNA HQ', r.subtitle);
             }
         }
+    }
+
+    // ─── createEvent — Description + Theme ─────────────────────────────────
+
+    @isTest
+    static void testCreateEvent_descriptionAndTheme() {
+        eventCreationWizardHandler.EventInput ei = makeEventInput('Themed Event');
+        ei.eventDescription = 'A weekend of learning & community';
+        ei.theme            = 'Faith, Family & Future';
+
+        Test.startTest();
+        String eventId = eventCreationWizardHandler.createEvent(JSON.serialize(ei));
+        Test.stopTest();
+
+        Event__c evt = [SELECT Event_Description__c, Theme__c FROM Event__c WHERE Id = :eventId];
+        System.assertEquals('A weekend of learning & community', evt.Event_Description__c);
+        System.assertEquals('Faith, Family & Future',            evt.Theme__c);
+    }
+
+    // ─── createAsanaTicket ────────────────────────────────────────────────────
+
+    /** Captures the outgoing request and returns a canned Asana response. */
+    private class AsanaMock implements HttpCalloutMock {
+        Integer status;
+        String  body;
+        HttpRequest captured;
+        AsanaMock(Integer status, String body) { this.status = status; this.body = body; }
+        public HttpResponse respond(HttpRequest req) {
+            captured = req;
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(status);
+            res.setBody(body);
+            return res;
+        }
+    }
+
+    /** Event with venue, manager, tracks and links — exercises every summary branch. */
+    private static Event__c makeFullEvent() {
+        Venue__c v = new Venue__c(Name = 'Asana Venue', Venue_Type__c = 'Hotel',
+                                   Street_Address_1__c = '1 Main', City__c = 'Chicago',
+                                   State__c = 'IL', Postal_Code_Zip__c = '60601');
+        insert v;
+        Event__c e = new Event__c(Name = 'ISNA <Day> & Gala', Event_Status__c = 'Active',
+                                   Event_Type__c = 'ISNA Day', Theme__c = 'Unity',
+                                   Event_Description__c = 'Annual gathering',
+                                   Event_Manager__c = UserInfo.getUserId(), Venue__c = v.Id,
+                                   Event_Start_Date__c = futureDt(30, 9),
+                                   Event_End_Date__c   = futureDt(30, 17),
+                                   Cancellation_Refund_Deadline__c = Date.today().addDays(20),
+                                   Event_Website__c = 'https://isna.net/day',
+                                   Hotel_Reservation_URL__c = 'https://hotel.example.com/isna');
+        insert e;
+        insert new List<Track__c>{
+            new Track__c(Event__c = e.Id, Name = 'General', Ticket_Price__c = 25,
+                         Number_of_Tickets__c = 100, Track_Description__c = 'Entry'),
+            new Track__c(Event__c = e.Id, Name = 'Free Pass')
+        };
+        return e;
+    }
+
+    @isTest
+    static void testCreateAsanaTicket_success() {
+        Event__c e = makeFullEvent();
+        AsanaMock mock = new AsanaMock(201,
+            '{"data":{"gid":"1234567890","permalink_url":"https://app.asana.com/0/0/1234567890"}}');
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        eventCreationWizardHandler.AsanaResult result =
+            eventCreationWizardHandler.createAsanaTicket(e.Id, '701000000000001');
+        Test.stopTest();
+
+        System.assertEquals('1234567890', result.taskGid);
+        System.assertEquals('https://app.asana.com/0/0/1234567890', result.taskUrl);
+
+        System.assert(mock.captured.getEndpoint().startsWith('callout:Asana_API/tasks'));
+        System.assertEquals('POST', mock.captured.getMethod());
+
+        Map<String, Object> data = (Map<String, Object>)
+            ((Map<String, Object>) JSON.deserializeUntyped(mock.captured.getBody())).get('data');
+        System.assertEquals('Create Form Assembly Form for Event : ISNA <Day> & Gala', data.get('name'));
+        System.assertEquals(eventCreationWizardHandler.ASANA_ASSIGNEE_GID, data.get('assignee'));
+        System.assertEquals(String.valueOf(Date.today().addDays(3)), data.get('due_on'));
+        System.assertEquals(new List<Object>{ eventCreationWizardHandler.ASANA_PROJECT_GID }, data.get('projects'));
+
+        String notes = (String) data.get('html_notes');
+        System.assert(notes.startsWith('<body>') && notes.endsWith('</body>'));
+        System.assert(notes.contains('ISNA &lt;Day&gt; &amp; Gala'), 'Name should be XML-escaped');
+        System.assert(notes.contains('Unity'),            'Theme should be in summary');
+        System.assert(notes.contains('Annual gathering'), 'Description should be in summary');
+        System.assert(notes.contains('Asana Venue'),      'Venue should be in summary');
+        System.assert(notes.contains('General'),          'Tracks should be in summary');
+        System.assert(notes.contains('/lightning/r/Event__c/' + e.Id + '/view'), 'Event link expected');
+        System.assert(notes.contains('/lightning/r/Campaign/701000000000001/view'), 'Campaign link expected');
+        System.assert(notes.contains('https://isna.net/day'), 'Website link expected');
+    }
+
+    @isTest
+    static void testCreateAsanaTicket_minimalEvent() {
+        Event__c e = new Event__c(Name = 'Bare Event', Event_Status__c = 'Active');
+        insert e;
+        AsanaMock mock = new AsanaMock(201, '{"data":{"gid":"1","permalink_url":"https://app.asana.com/0/0/1"}}');
+        Test.setMock(HttpCalloutMock.class, mock);
+
+        Test.startTest();
+        eventCreationWizardHandler.AsanaResult result = eventCreationWizardHandler.createAsanaTicket(e.Id, null);
+        Test.stopTest();
+
+        System.assertEquals('1', result.taskGid);
+        String body = mock.captured.getBody();
+        System.assert(!body.contains('/lightning/r/Campaign/'), 'No campaign link without a campaign Id');
+    }
+
+    @isTest
+    static void testCreateAsanaTicket_httpError_throws() {
+        Event__c e = new Event__c(Name = 'Failing Event', Event_Status__c = 'Active');
+        insert e;
+        Test.setMock(HttpCalloutMock.class, new AsanaMock(401, '{"errors":[{"message":"Not Authorized"}]}'));
+
+        Test.startTest();
+        try {
+            eventCreationWizardHandler.createAsanaTicket(e.Id, null);
+            System.assert(false, 'Expected AuraHandledException');
+        } catch (AuraHandledException ex) {
+            System.assertNotEquals(null, ex.getMessage());
+        }
+        Test.stopTest();
+
+        System.assertEquals(1, [SELECT COUNT() FROM Event__c WHERE Id = :e.Id], 'Event must survive an Asana failure');
     }
 
     // ─── LookupResult / CampaignResult constructors ───────────────────────────

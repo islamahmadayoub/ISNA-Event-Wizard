@@ -88,6 +88,22 @@
                             <template lwc:if={errors.type}><p class="field-error">{errors.type}</p></template>
                         </div>
 
+                        <!-- Theme — API: Theme__c (text 255) -->
+                        <div class="field-group">
+                            <label class="field-label">Theme</label>
+                            <input type="text" class="field-input" data-field="theme"
+                                   value={theme} placeholder="e.g. Faith, Family &amp; Future" maxlength="255"
+                                   oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                        </div>
+
+                        <!-- Event Description — API: Event_Description__c (textarea 255) -->
+                        <div class="field-group">
+                            <label class="field-label">Event Description</label>
+                            <textarea class="field-input field-textarea" data-field="eventDescription"
+                                      placeholder="Briefly describe the event (255 characters max)…" maxlength="255"
+                                      oninput={handleInput} onfocus={onFocus} onblur={onBlur}>{eventDescription}</textarea>
+                        </div>
+
                         <!-- Event Manager + Parent Event (lookup fields) -->
                         <div class="field-row">
                             <!-- API: Event_Manager__c → reference to User -->
@@ -383,14 +399,19 @@
 
                 <!-- Created records summary -->
                 <div class="success-records">
-                    <!-- Event__c -->
-                    <div class="success-record-row">
-                        <div class="success-record-icon" style="background:#003777">📅</div>
-                        <div class="success-record-info">
-                            <span class="success-record-type">Event__c</span>
-                            <span class="success-record-name">{eventName}</span>
+                    <!-- Event__c — clickable, opens the record page; Copy ID beside it -->
+                    <div class="success-event-line">
+                        <div class="success-record-row success-record-link" role="link" tabindex="0"
+                             title="Open Event record" onclick={navigateToEvent}>
+                            <div class="success-record-icon" style="background:#003777">📅</div>
+                            <div class="success-record-info">
+                                <span class="success-record-type">Event__c</span>
+                                <span class="success-record-name">{eventName}</span>
+                            </div>
+                            <span class="success-record-id">{publishedEventId}</span>
+                            <span class="success-record-arrow">›</span>
                         </div>
-                        <span class="success-record-id">{publishedEventId}</span>
+                        <button class="btn-copy-id" onclick={copyEventId} title="Copy Event Id">{copyIdLabel}</button>
                     </div>
                     <!-- Campaign -->
                     <div class="success-record-row">
@@ -409,6 +430,58 @@
                             <span class="success-record-name">{trackCount} ticket track(s) created</span>
                         </div>
                         <span class="success-record-id">linked to Event</span>
+                    </div>
+                    <!-- Asana ticket -->
+                    <template lwc:if={asanaTaskUrl}>
+                        <a class="success-record-row success-record-link" href={asanaTaskUrl} target="_blank" rel="noopener">
+                            <div class="success-record-icon" style="background:#f06a6a">✅</div>
+                            <div class="success-record-info">
+                                <span class="success-record-type">Asana Ticket</span>
+                                <span class="success-record-name">Create Form Assembly Form · due in 3 days</span>
+                            </div>
+                            <span class="success-record-arrow">↗</span>
+                        </a>
+                    </template>
+                    <template lwc:if={asanaError}>
+                        <div class="save-error-banner">{asanaError}</div>
+                    </template>
+                </div>
+
+                <!-- Submitted values summary -->
+                <div class="success-summary">
+                    <div class="section-header">
+                        <div class="section-bar" style="background:#229492"></div>
+                        <h2 class="section-title">Event Summary</h2>
+                    </div>
+                    <div class="review-rows">
+                        <template for:each={reviewEventRows} for:item="row">
+                            <div key={row.key} class="review-row">
+                                <span class="review-label">{row.label}</span>
+                                <span class="review-value">{row.value}</span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div class="section-header" style="margin-top:20px">
+                        <div class="section-bar" style="background:#6fbd4b"></div>
+                        <h2 class="section-title">Ticket Types ({trackCount})</h2>
+                    </div>
+                    <div class="review-tracks">
+                        <template for:each={reviewTracksWithMeta} for:item="track">
+                            <div key={track.id} class="review-track-row">
+                                <div class="review-track-circle" style={track.circleStyle}>{track.displayNum}</div>
+                                <div class="review-track-info">
+                                    <div class="review-track-name">{track.name}</div>
+                                    <template lwc:if={track.description}>
+                                        <div class="review-track-desc">{track.description}</div>
+                                    </template>
+                                </div>
+                                <div class="review-track-meta">
+                                    <div class="review-track-price">{track.formattedPrice}</div>
+                                    <div class="review-track-tickets">{track.ticketLabel}</div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
 

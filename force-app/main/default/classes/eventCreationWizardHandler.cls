@@ -7,6 +7,9 @@
  *   • createCampaign(String, EventInput) – creates a Campaign linked to the event
  *   • createTracks(String, List<TrackInput>) – saves Track__c children (Step 2 data)
  *
+ *  Integration (called after the DML methods, in its own transaction):
+ *   • createAsanaTicket(String, String) – opens the Form Assembly Asana task
+ *
  *  Initial-load query methods (wire / on-connectedCallback):
  *   • getActiveUsers()   – active internal users  → Event Manager picklist
  *   • getActiveEvents()  – active Event__c records → Parent Event picklist
@@ -43,6 +46,8 @@ public with sharing class eventCreationWizardHandler {
         @AuraEnabled public String venueId;             // Venue__c → Venue__c
         @AuraEnabled public String hotelReservationUrl; // Hotel_Reservation_URL__c
         @AuraEnabled public String eventWebsite;        // Event_Website__c
+        @AuraEnabled public String eventDescription;    // Event_Description__c
+        @AuraEnabled public String theme;               // Theme__c
     }
 
     /**
@@ -101,6 +106,33 @@ public with sharing class eventCreationWizardHandler {
             this.campaignName = campaignName;
         }
     }
+
+    /**
+     * @description Return value of createAsanaTicket — the new task's gid and
+     *              its Asana URL for the success screen.
+     */
+    public class AsanaResult {
+        @AuraEnabled public String taskGid;
+        @AuraEnabled public String taskUrl;
+
+        public AsanaResult(String taskGid, String taskUrl) {
+            this.taskGid = taskGid;
+            this.taskUrl = taskUrl;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Asana configuration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Named Credential holding the Asana base URL + Personal Access Token. */
+    @TestVisible private static final String ASANA_NAMED_CREDENTIAL = 'Asana_API';
+    /** Islam Ayoub — assignee of every auto-created Form Assembly task. */
+    @TestVisible private static final String ASANA_ASSIGNEE_GID    = '1210680598374099';
+    /** "ISNA - Partnership" project in the haddam.tech workspace. */
+    @TestVisible private static final String ASANA_PROJECT_GID     = '1212751860482891';
+    @TestVisible private static final Integer ASANA_DUE_IN_DAYS    = 3;
+    @TestVisible private static final String ASANA_TITLE_PREFIX    = 'Create Form Assembly Form for Event : ';
 
     // ─────────────────────────────────────────────────────────────────────────
     // DML — createVenue
@@ -192,8 +224,10 @@ public with sharing class eventCreationWizardHandler {
             System.debug('venueId='          + input.venueId);
             System.debug('hotelUrl='         + input.hotelReservationUrl);
             System.debug('eventWebsite='     + input.eventWebsite);
+            System.debug('eventDescription=' + input.eventDescription);
+            System.debug('theme='            + input.theme);
 
-            Event__c evt        = new Event__c();
+            Event__c evt       = new Event__c();
             evt.Name            = input.name;
             evt.Event_Type__c   = input.eventType;
             evt.Event_Status__c = input.eventStatus;
@@ -220,6 +254,8 @@ public with sharing class eventCreationWizardHandler {
 
             evt.Hotel_Reservation_URL__c = input.hotelReservationUrl;
             evt.Event_Website__c         = input.eventWebsite;
+            evt.Event_Description__c     = input.eventDescription;
+            evt.Theme__c                 = input.theme;
 
             insert evt;
             System.debug('### createEvent SUCCESS — Id=' + evt.Id + ' Name=' + evt.Name);
@@ -361,6 +397,156 @@ public with sharing class eventCreationWizardHandler {
         } catch (Exception ex) {
             throw new AuraHandledException(ex.getMessage());
         }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Integration — createAsanaTicket
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * @description Called last in the wizard publish sequence, after the Event,
+     *              Campaign and Tracks are saved. Creates an Asana task titled
+     *              "Create Form Assembly Form for Event : <name>", assigned to
+     *              Islam Ayoub, due 3 days from today, in the ISNA - Partnership
+     *              project, with a summary of every submitted field and links.
+     *
+     *              Runs as its own Aura request (a separate transaction), so the
+     *              callout is never blocked by uncommitted DML, and a failure here
+     *              never rolls back the Event — the LWC surfaces the error on the
+     *              success screen instead.
+     *
+     *              The summary is built from the saved records, not from client
+     *              input, so the ticket reflects exactly what was persisted.
+     *
+     * @param  eventId     The Id returned by createEvent.
+     * @param  campaignId  The Id returned by createCampaign (may be blank).
+     * @return             AsanaResult with the new task gid and URL.
+     */
+    @AuraEnabled
+    public static AsanaResult createAsanaTicket(String eventId, String campaignId) {
+        try {
+            Event__c evt = [
+                SELECT Id, Name, Event_Type__c, Event_Status__c, Event_Description__c, Theme__c,
+                       Event_Start_Date__c, Event_End_Date__c, Cancellation_Refund_Deadline__c,
+                       Hotel_Reservation_URL__c, Event_Website__c,
+                       Event_Manager__r.Name, Parent_Event__r.Name,
+                       Venue__r.Name, Venue__r.Street_Address_1__c, Venue__r.Street_Address_2__c,
+                       Venue__r.City__c, Venue__r.State__c, Venue__r.Postal_Code_Zip__c,
+                       (SELECT Name, Ticket_Price__c, Number_of_Tickets__c, Track_Description__c
+                        FROM Tracks__r ORDER BY CreatedDate, Name)
+                FROM   Event__c
+                WHERE  Id = :eventId
+                LIMIT  1
+            ];
+
+            Map<String, Object> data = new Map<String, Object>{
+                'name'       => ASANA_TITLE_PREFIX + evt.Name,
+                'assignee'   => ASANA_ASSIGNEE_GID,
+                'projects'   => new List<String>{ ASANA_PROJECT_GID },
+                'due_on'     => String.valueOf(Date.today().addDays(ASANA_DUE_IN_DAYS)),
+                'html_notes' => buildAsanaNotes(evt, campaignId)
+            };
+
+            HttpRequest req = new HttpRequest();
+            req.setEndpoint('callout:' + ASANA_NAMED_CREDENTIAL + '/tasks?opt_fields=gid,permalink_url');
+            req.setMethod('POST');
+            req.setHeader('Content-Type', 'application/json');
+            req.setHeader('Accept', 'application/json');
+            req.setTimeout(20000);
+            req.setBody(JSON.serialize(new Map<String, Object>{ 'data' => data }));
+
+            HttpResponse res = new Http().send(req);
+            System.debug('### createAsanaTicket — status=' + res.getStatusCode() + ' body=' + res.getBody());
+
+            if (res.getStatusCode() < 200 || res.getStatusCode() >= 300) {
+                throw new AsanaException('Asana returned HTTP ' + res.getStatusCode() + ': '
+                    + res.getBody().left(500));
+            }
+
+            Map<String, Object> body    = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+            Map<String, Object> created = (Map<String, Object>) body.get('data');
+            return new AsanaResult((String) created.get('gid'), (String) created.get('permalink_url'));
+
+        } catch (Exception ex) {
+            System.debug(LoggingLevel.ERROR, '### createAsanaTicket ERROR: ' + ex.getMessage());
+            throw new AuraHandledException('The event was saved, but the Asana ticket could not be created: '
+                + ex.getMessage());
+        }
+    }
+
+    private class AsanaException extends Exception {}
+
+    /**
+     * @description Builds the Asana html_notes body: every submitted Event field,
+     *              the venue, the ticket tracks, and links back to Salesforce.
+     *              Asana requires well-formed XML using its limited tag set.
+     */
+    @TestVisible
+    private static String buildAsanaNotes(Event__c evt, String campaignId) {
+        String base = URL.getOrgDomainUrl().toExternalForm();
+        String dtFmt = 'MMM d, yyyy h:mm a';
+
+        String venue = '';
+        if (evt.Venue__r != null) {
+            List<String> addr = new List<String>();
+            for (String part : new List<String>{
+                    evt.Venue__r.Street_Address_1__c, evt.Venue__r.Street_Address_2__c,
+                    evt.Venue__r.City__c, evt.Venue__r.State__c, evt.Venue__r.Postal_Code_Zip__c }) {
+                if (String.isNotBlank(part)) addr.add(part);
+            }
+            venue = evt.Venue__r.Name + (addr.isEmpty() ? '' : ' (' + String.join(addr, ', ') + ')');
+        }
+
+        String h = '<body><h2>Event Details</h2><ul>';
+        h += asanaItem('Event Name',        evt.Name);
+        h += asanaItem('Event Type',        evt.Event_Type__c);
+        h += asanaItem('Event Status',      evt.Event_Status__c);
+        h += asanaItem('Theme',             evt.Theme__c);
+        h += asanaItem('Event Description', evt.Event_Description__c);
+        h += asanaItem('Event Manager',     evt.Event_Manager__r?.Name);
+        h += asanaItem('Parent Event',      evt.Parent_Event__r?.Name);
+        h += asanaItem('Start Date & Time', evt.Event_Start_Date__c?.format(dtFmt));
+        h += asanaItem('End Date & Time',   evt.Event_End_Date__c?.format(dtFmt));
+        h += asanaItem('Cancellation & Refund Deadline', evt.Cancellation_Refund_Deadline__c?.format());
+        h += asanaItem('Venue',             venue);
+        h += '</ul>';
+
+        h += '<h2>Ticket Types (' + evt.Tracks__r.size() + ')</h2><ul>';
+        for (Track__c t : evt.Tracks__r) {
+            String line = '<strong>' + esc(t.Name) + '</strong>'
+                + ' — ' + (t.Ticket_Price__c != null ? '$' + t.Ticket_Price__c.setScale(2) : '$0.00')
+                + (t.Number_of_Tickets__c != null ? ' · ' + t.Number_of_Tickets__c.intValue() + ' ticket(s)' : '');
+            if (String.isNotBlank(t.Track_Description__c)) line += ' · ' + esc(t.Track_Description__c);
+            h += '<li>' + line + '</li>';
+        }
+        h += '</ul>';
+
+        h += '<h2>Links</h2><ul>';
+        h += asanaLink('Salesforce Event', base + '/lightning/r/Event__c/' + evt.Id + '/view');
+        if (String.isNotBlank(campaignId))
+            h += asanaLink('Salesforce Campaign', base + '/lightning/r/Campaign/' + campaignId + '/view');
+        h += asanaLink('Event Website',         evt.Event_Website__c);
+        h += asanaLink('Hotel Reservation URL', evt.Hotel_Reservation_URL__c);
+        h += '</ul>';
+
+        h += '<strong>Salesforce Event Id:</strong> ' + evt.Id + '</body>';
+        return h;
+    }
+
+    private static String asanaItem(String label, String value) {
+        return '<li><strong>' + esc(label) + ':</strong> '
+            + (String.isNotBlank(value) ? esc(value) : '—') + '</li>';
+    }
+
+    private static String asanaLink(String label, String href) {
+        if (String.isBlank(href)) return asanaItem(label, null);
+        return '<li><strong>' + esc(label) + ':</strong> <a href="' + esc(href) + '">' + esc(href) + '</a></li>';
+    }
+
+    /** XML-escapes text for Asana html_notes (escapeHtml4 emits non-XML entities). */
+    private static String esc(String s) {
+        if (s == null) return '';
+        return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('"', '&quot;');
     }
 
     // ─────────────────────────────────────────────────────────────────────────

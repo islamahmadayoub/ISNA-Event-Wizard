@@ -1,10 +1,14 @@
 import { LightningElement, track, wire } from 'lwc';
+import { NavigationMixin } from 'lightning/navigation';
 
 // ── DML methods ───────────────────────────────────────────────────────────────
 import createVenue   from '@salesforce/apex/eventCreationWizardHandler.createVenue';
 import createEvent   from '@salesforce/apex/eventCreationWizardHandler.createEvent';
 import createCampaign from '@salesforce/apex/eventCreationWizardHandler.createCampaign';
 import createTracks  from '@salesforce/apex/eventCreationWizardHandler.createTracks';
+
+// ── Integration ───────────────────────────────────────────────────────────────
+import createAsanaTicket from '@salesforce/apex/eventCreationWizardHandler.createAsanaTicket';
 
 // ── Initial-load query methods (wired on connectedCallback) ───────────────────
 import getActiveUsers  from '@salesforce/apex/eventCreationWizardHandler.getActiveUsers';
@@ -21,7 +25,7 @@ const TRACK_COLORS = [TEAL, NAVY, GREEN, '#7c3aed', '#db6b1a'];
 
 let _nextId = 3;
 
-export default class EventCreationWizard extends LightningElement {
+export default class EventCreationWizard extends NavigationMixin(LightningElement) {
 
     // ── Wizard state ──────────────────────────────────────────────────────────
     @track currentStep     = 1;
@@ -33,11 +37,16 @@ export default class EventCreationWizard extends LightningElement {
     @track publishedEventId    = '';
     @track publishedCampaignId = '';
     @track publishedCampaignName = '';
+    @track asanaTaskUrl          = '';
+    @track asanaError            = '';
+    @track idCopied              = false;
 
     // ── Step 1 – Event fields ─────────────────────────────────────────────────
     @track eventName          = '';
     @track eventType          = '';
            eventStatus        = 'Active';   // always 'Active'; not exposed in UI
+    @track eventDescription   = '';
+    @track theme              = '';
     @track eventManagerName   = '';
     @track eventManagerId     = '';
     @track parentEventName    = '';
@@ -416,6 +425,8 @@ export default class EventCreationWizard extends LightningElement {
         return [
             { key: 'name',    label: 'Event Name',                    value: this.eventName         || '—' },
             { key: 'type',    label: 'Event Type',                    value: this.eventType         || '—' },
+            { key: 'theme',   label: 'Theme',                         value: this.theme             || '—' },
+            { key: 'desc',    label: 'Event Description',             value: this.eventDescription  || '—' },
             { key: 'mgr',     label: 'Event Manager',                 value: this.eventManagerName  || '—' },
             { key: 'parent',  label: 'Parent Event',                  value: this.parentEventName   || '—' },
             { key: 'start',   label: 'Start Date & Time',             value: fmt(this.startDate)          },
@@ -449,14 +460,18 @@ export default class EventCreationWizard extends LightningElement {
      *   5. Advance to Step 4 (Success)
      */
     async handlePublish() {
-        this.isLoading = true;
-        this.saveError = '';
+        this.isLoading    = true;
+        this.saveError    = '';
+        this.asanaTaskUrl = '';
+        this.asanaError   = '';
         try {
             // ── CLIENT-SIDE DIAGNOSTIC ────────────────────────────────────────
             console.log('=== handlePublish: JS tracked values ===');
             console.log('eventName:',       this.eventName);
             console.log('eventType:',       this.eventType);
             console.log('eventStatus:',     this.eventStatus);
+            console.log('eventDescription:', this.eventDescription);
+            console.log('theme:',           this.theme);
             console.log('eventManagerId:',  this.eventManagerId);
             console.log('parentEventId:',   this.parentEventId);
             console.log('startDate:',       this.startDate);
@@ -480,6 +495,8 @@ export default class EventCreationWizard extends LightningElement {
                 venueId:             this.venueId             || null,
                 hotelReservationUrl: this.hotelLink           || null,
                 eventWebsite:        this.eventWebsite        || null,
+                eventDescription:    this.eventDescription    || null,
+                theme:               this.theme               || null,
             };
             console.log('=== eventInput being sent to Apex ===', JSON.stringify(eventInput));
 
@@ -535,6 +552,16 @@ export default class EventCreationWizard extends LightningElement {
             }));
             await createTracks({ eventId, tracksJson: JSON.stringify(trackInputs) });
 
+            // ④ Open the Form Assembly Asana ticket. The records above are
+            //    already committed, so a failure here is shown on the success
+            //    screen rather than blocking it.
+            try {
+                const asana = await createAsanaTicket({ eventId, campaignId: this.publishedCampaignId });
+                this.asanaTaskUrl = asana.taskUrl;
+            } catch (asanaErr) {
+                this.asanaError = asanaErr.body?.message || asanaErr.message || 'Asana ticket could not be created.';
+            }
+
             this.currentStep = 4;
 
         } catch (err) {
@@ -544,12 +571,46 @@ export default class EventCreationWizard extends LightningElement {
         }
     }
 
+    // ── Success screen actions ────────────────────────────────────────────────
+    /** Opens the newly created Event__c record page. */
+    navigateToEvent() {
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: { recordId: this.publishedEventId, objectApiName: 'Event__c', actionName: 'view' }
+        });
+    }
+
+    /** Copies the Event Id to the clipboard, falling back to execCommand. */
+    async copyEventId(e) {
+        e.stopPropagation();
+        const id = this.publishedEventId;
+        try {
+            await navigator.clipboard.writeText(id);
+        } catch (err) {
+            const ta = document.createElement('textarea');
+            ta.value = id;
+            ta.style.position = 'fixed';
+            ta.style.opacity  = '0';
+            this.template.querySelector('.success-records').appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+        }
+        this.idCopied = true;
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => { this.idCopied = false; }, 2000);
+    }
+
+    get copyIdLabel() { return this.idCopied ? '✓ Copied' : '⧉ Copy ID'; }
+
     // ── Reset ─────────────────────────────────────────────────────────────────
     handleReset() {
         const d = this._defaultDates();
         this.currentStep           = 1;
         this.eventName             = '';
         this.eventType             = '';
+        this.eventDescription      = '';
+        this.theme                 = '';
         this.eventManagerName      = '';
         this.eventManagerId        = '';
         this.parentEventName       = '';
@@ -566,7 +627,10 @@ export default class EventCreationWizard extends LightningElement {
         this.publishedEventId      = '';
         this.publishedCampaignId   = '';
         this.publishedCampaignName = '';
-        this.tracks = [{ id: _nextId++, name: '', price: '', tickets: '1', description: '' }];
+        this.asanaTaskUrl          = '';
+        this.asanaError            = '';
+        this.idCopied              = false;
+        this.tracks =[{ id: _nextId++, name: '', price: '', tickets: '1', description: '' }];
     }
 
     // ── Venue modal ───────────────────────────────────────────────────────────
