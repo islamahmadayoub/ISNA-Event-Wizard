@@ -1,0 +1,583 @@
+<template>
+    <!-- ── Nav bar ──────────────────────────────────────────────────────────── -->
+    <div class="nav-bar">
+        <div class="nav-logo">
+            <img src="{logoUrl}" alt="ISNA" class="nav-logo-img" onerror={hideLogoImg} />
+            <span class="nav-logo-text">ISNA Events</span>
+        </div>
+        <div class="nav-right">
+            <span class="nav-app-name">Events Management</span>
+            <div class="nav-avatar">AK</div>
+        </div>
+    </div>
+
+    <!-- ── Breadcrumb ───────────────────────────────────────────────────────── -->
+    <div class="breadcrumb-bar">
+        <span class="breadcrumb-parent">Events</span>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-current">{breadcrumbLabel}</span>
+    </div>
+
+    <!-- ── Page content ─────────────────────────────────────────────────────── -->
+    <div class="page-content">
+
+        <!-- Step header + progress bar (steps 1–3) -->
+        <template lwc:if={showStepHeader}>
+            <div class="step-header">
+                <div class="step-header-top">
+                    <div>
+                        <h1 class="step-heading">{stepHeading}</h1>
+                        <p class="step-subtitle">{stepSubtitle}<template lwc:if={isStep1}><span class="req-star"> *</span></template></p>
+                    </div>
+                    <div class="draft-badge">
+                        <span class="draft-dot"></span>
+                        <span class="draft-label">Draft</span>
+                    </div>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-step">
+                        <div class="step-circle" style={step1CircleStyle} onclick={goToStep1}>{step1Display}</div>
+                        <span class="step-label" style={step1LabelStyle}>Event Details</span>
+                    </div>
+                    <div class="step-line" style={line1Style}></div>
+                    <div class="progress-step">
+                        <div class="step-circle" style={step2CircleStyle}>{step2Display}</div>
+                        <span class="step-label" style={step2LabelStyle}>Ticket Types</span>
+                    </div>
+                    <div class="step-line" style={line2Style}></div>
+                    <div class="progress-step">
+                        <div class="step-circle" style={step3CircleStyle}>{step3Display}</div>
+                        <span class="step-label" style={step3LabelStyle}>Review &amp; Publish</span>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        <!-- ═══ STEP 1 – Event Details ═══════════════════════════════════════ -->
+        <template lwc:if={isStep1}>
+            <div class="form-card">
+
+                <!-- Basic Information -->
+                <div class="form-section">
+                    <div class="section-header">
+                        <div class="section-bar" style="background:#229492"></div>
+                        <h2 class="section-title">Basic Information</h2>
+                    </div>
+                    <div class="field-stack">
+
+                        <!-- Event Name — maps to Name (standard) -->
+                        <div class="field-group">
+                            <label class="field-label">Event Name<span class="req-star">*</span></label>
+                            <input type="text" class="field-input" data-field="eventName"
+                                   value={eventName} placeholder="Enter event name"
+                                   oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                            <template lwc:if={errors.name}><p class="field-error">{errors.name}</p></template>
+                        </div>
+
+                        <!-- Event Type -->
+                        <div class="field-group">
+                            <label class="field-label">Event Type<span class="req-star">*</span></label>
+                            <!-- API: Event_Type__c (picklist) -->
+                            <select class="field-select" data-field="eventType"
+                                    onchange={handleInput} onfocus={onFocus} onblur={onBlur}>
+                                <option value="">Select event type</option>
+                                <template for:each={eventTypeOptions} for:item="opt">
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                </template>
+                            </select>
+                            <template lwc:if={errors.type}><p class="field-error">{errors.type}</p></template>
+                        </div>
+
+                        <!-- Event Manager + Parent Event (lookup fields) -->
+                        <div class="field-row">
+                            <!-- API: Event_Manager__c → reference to User -->
+                            <div class="field-group">
+                                <label class="field-label">Event Manager</label>
+                                <div class="lookup-wrap">
+                                    <span class="lookup-icon">⌕</span>
+                                    <input type="text" class="field-input lookup-input"
+                                           value={eventManagerName} placeholder="Search users…"
+                                           oninput={handleManagerInput} onfocus={handleManagerFocus} onblur={handleManagerBlur} />
+                                    <template lwc:if={eventManagerName}>
+                                        <button class="lookup-clear" onclick={clearManager}>✕</button>
+                                    </template>
+                                </div>
+                                <template lwc:if={managerResults.length}>
+                                    <div class="lookup-dropdown">
+                                        <template for:each={managerResults} for:item="r">
+                                            <div key={r.id} class="lookup-option"
+                                                 data-id={r.id} data-name={r.name} onmousedown={handleDropdownMousedown} onclick={selectManager}>
+                                                <span class="lookup-opt-name">{r.name}</span>
+                                                <span class="lookup-opt-sub">{r.subtitle}</span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template lwc:if={errors.manager}><p class="field-error">{errors.manager}</p></template>
+                            </div>
+
+                            <!-- API: Parent_Event__c → reference to Event__c -->
+                            <div class="field-group">
+                                <label class="field-label">Parent Event</label>
+                                <div class="lookup-wrap">
+                                    <span class="lookup-icon">⌕</span>
+                                    <input type="text" class="field-input lookup-input"
+                                           value={parentEventName} placeholder="Search events…"
+                                           oninput={handleParentInput} onfocus={handleParentFocus} onblur={handleParentBlur} />
+                                    <template lwc:if={parentEventName}>
+                                        <button class="lookup-clear" onclick={clearParent}>✕</button>
+                                    </template>
+                                </div>
+                                <template lwc:if={parentResults.length}>
+                                    <div class="lookup-dropdown">
+                                        <template for:each={parentResults} for:item="r">
+                                            <div key={r.id} class="lookup-option"
+                                                 data-id={r.id} data-name={r.name} onmousedown={handleDropdownMousedown} onclick={selectParent}>
+                                                <span class="lookup-opt-name">{r.name}</span>
+                                                <span class="lookup-opt-sub">{r.subtitle}</span>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                                <template lwc:if={errors.parent}><p class="field-error">{errors.parent}</p></template>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Schedule -->
+                <div class="form-section">
+                    <div class="section-header">
+                        <div class="section-bar" style="background:#6fbd4b"></div>
+                        <h2 class="section-title">Schedule</h2>
+                    </div>
+                    <div class="field-stack">
+
+                        <!-- Start + End datetime — API: Event_Start_Date__c / Event_End_Date__c -->
+                        <div class="field-row">
+                            <div class="field-group">
+                                <label class="field-label">Start Date &amp; Time<span class="req-star">*</span></label>
+                                <input type="datetime-local" class="field-input" data-field="startDate"
+                                       value={startDate} oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                                <template lwc:if={errors.startDate}><p class="field-error">{errors.startDate}</p></template>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">End Date &amp; Time<span class="req-star">*</span></label>
+                                <input type="datetime-local" class="field-input" data-field="endDate"
+                                       value={endDate} oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                                <template lwc:if={errors.endDate}><p class="field-error">{errors.endDate}</p></template>
+                            </div>
+                        </div>
+
+                        <!-- Cancellation & Refund Deadline — API: Cancellation_Refund_Deadline__c (Date) -->
+                        <div class="field-group">
+                            <label class="field-label">Cancellation &amp; Refund Deadline</label>
+                            <input type="date" class="field-input" data-field="refundDeadline"
+                                   value={refundDeadline} oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                        </div>
+
+                        <!-- Venue — API: Venue__c (reference to Venue__c) -->
+                        <div class="field-group">
+                            <label class="field-label">Venue</label>
+                            <div class="venue-row">
+                                <div class="venue-input-wrap">
+                                    <span class="venue-icon">⌖</span>
+                                    <input type="text" class="field-input venue-input"
+                                           value={venueName_display} placeholder="Search venues…"
+                                           oninput={handleVenueInput} onfocus={handleVenueFocus} onblur={handleVenueBlur} />
+                                    <template lwc:if={venueName_display}>
+                                        <button class="lookup-clear" onclick={clearVenue}>✕</button>
+                                    </template>
+                                </div>
+                                <button class="btn-new-venue" onclick={openVenueModal}>+ New Venue</button>
+                            </div>
+                            <template lwc:if={venueResults.length}>
+                                <div class="lookup-dropdown">
+                                    <template for:each={venueResults} for:item="r">
+                                        <div key={r.id} class="lookup-option"
+                                             data-id={r.id} data-name={r.name} onmousedown={handleDropdownMousedown} onclick={selectVenue}>
+                                            <span class="lookup-opt-name">{r.name}</span>
+                                            <span class="lookup-opt-sub">{r.subtitle}</span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                            <template lwc:if={errors.venue}><p class="field-error">{errors.venue}</p></template>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Publishing & Links -->
+                <div class="form-section last">
+                    <div class="section-header">
+                        <div class="section-bar" style="background:#003777"></div>
+                        <h2 class="section-title">Publishing &amp; Links</h2>
+                    </div>
+                    <div class="field-row">
+                        <!-- API: Hotel_Reservation_URL__c -->
+                        <div class="field-group">
+                            <label class="field-label">Hotel Reservation URL</label>
+                            <input type="url" class="field-input" data-field="hotelLink"
+                                   value={hotelLink} placeholder="https://…"
+                                   oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                        </div>
+                        <!-- API: Event_Website__c -->
+                        <div class="field-group">
+                            <label class="field-label">Event Website</label>
+                            <input type="url" class="field-input" data-field="eventWebsite"
+                                   value={eventWebsite} placeholder="https://isna.net/events"
+                                   oninput={handleInput} onfocus={onFocus} onblur={onBlur} />
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /form-card -->
+
+            <!-- Step 1 actions -->
+            <div class="action-bar">
+                <button class="btn-primary" onclick={handleNext1}>Next: Ticket Types ›</button>
+            </div>
+        </template>
+
+        <!-- ═══ STEP 2 – Ticket Types ════════════════════════════════════════ -->
+        <template lwc:if={isStep2}>
+            <div class="info-banner">
+                <span class="info-icon">ℹ</span>
+                <span>Define ticket tracks for <strong>{eventName}</strong>. Each track creates a <strong>Track__c</strong> record linked to the event.</span>
+            </div>
+
+            <div class="track-list">
+                <template for:each={tracksWithMeta} for:item="track">
+                    <div key={track.id} class="track-card">
+                        <div class="track-header" style={track.headerStyle}>
+                            <div class="track-header-left">
+                                <div class="track-num-circle">{track.displayNum}</div>
+                                <div>
+                                    <span class="track-type-label">Track / Ticket Type</span>
+                                    <span class="track-name-display">{track.nameDisplay}</span>
+                                </div>
+                            </div>
+                            <div class="track-header-right">
+                                <template lwc:if={track.formattedPrice}>
+                                    <span class="track-price-badge">{track.formattedPrice}</span>
+                                </template>
+                                <template lwc:if={track.isNotOnly}>
+                                    <button class="btn-delete-track" data-id={track.id} onclick={deleteTrack}>🗑</button>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="track-body">
+                            <div class="track-fields">
+                                <!-- API: Name (standard) -->
+                                <div class="field-group">
+                                    <label class="field-label">Track Name<span class="req-star">*</span></label>
+                                    <input type="text" class="field-input"
+                                           data-id={track.id} data-field="name"
+                                           value={track.name} placeholder="e.g. General Admission"
+                                           oninput={handleTrackInput} onfocus={onFocus} onblur={onBlur} />
+                                </div>
+                                <!-- API: Ticket_Price__c (currency) -->
+                                <div class="field-group">
+                                    <label class="field-label">Ticket Price<span class="req-star">*</span></label>
+                                    <div class="price-wrap">
+                                        <span class="price-prefix">$</span>
+                                        <input type="number" class="field-input price-input"
+                                               data-id={track.id} data-field="price"
+                                               value={track.price} placeholder="0.00" min="0" step="0.01"
+                                               oninput={handleTrackInput} onfocus={onFocus} onblur={onBlur} />
+                                    </div>
+                                </div>
+                                <!-- API: Number_of_Tickets__c (number) -->
+                                <div class="field-group">
+                                    <label class="field-label">Number of Tickets<span class="req-star">*</span></label>
+                                    <input type="number" class="field-input"
+                                           data-id={track.id} data-field="tickets"
+                                           value={track.tickets} placeholder="1" min="1"
+                                           oninput={handleTrackInput} onfocus={onFocus} onblur={onBlur} />
+                                </div>
+                            </div>
+                            <!-- API: Track_Description__c (textarea) -->
+                            <div class="field-group">
+                                <label class="field-label">Track Description</label>
+                                <textarea class="field-input field-textarea"
+                                          data-id={track.id} data-field="description"
+                                          placeholder="Describe what's included in this ticket type…"
+                                          oninput={handleTrackInput} onfocus={onFocus} onblur={onBlur}>{track.description}</textarea>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <button class="btn-add-track" onclick={addTrack}>+ Add Another Track</button>
+
+            <div class="action-bar space-between">
+                <button class="btn-secondary" onclick={goBack}>‹ Back</button>
+                <button class="btn-primary-navy" onclick={goToStep3}>Next: Review &amp; Publish ›</button>
+            </div>
+        </template>
+
+        <!-- ═══ STEP 3 – Review & Publish ════════════════════════════════════ -->
+        <template lwc:if={isStep3}>
+            <div class="form-card">
+                <div class="section-header">
+                    <div class="section-bar" style="background:#229492"></div>
+                    <h2 class="section-title">Event Details</h2>
+                </div>
+                <div class="review-rows">
+                    <template for:each={reviewEventRows} for:item="row">
+                        <div key={row.key} class="review-row">
+                            <span class="review-label">{row.label}</span>
+                            <span class="review-value">{row.value}</span>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <div class="form-card" style="margin-top:16px">
+                <div class="section-header">
+                    <div class="section-bar" style="background:#6fbd4b"></div>
+                    <h2 class="section-title">Ticket Types ({trackCount})</h2>
+                </div>
+                <div class="review-tracks">
+                    <template for:each={reviewTracksWithMeta} for:item="track">
+                        <div key={track.id} class="review-track-row">
+                            <div class="review-track-circle" style={track.circleStyle}>{track.displayNum}</div>
+                            <div class="review-track-info">
+                                <div class="review-track-name">{track.name}</div>
+                                <template lwc:if={track.description}>
+                                    <div class="review-track-desc">{track.description}</div>
+                                </template>
+                            </div>
+                            <div class="review-track-meta">
+                                <div class="review-track-price">{track.formattedPrice}</div>
+                                <div class="review-track-tickets">{track.ticketLabel}</div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Save error -->
+            <template lwc:if={saveError}>
+                <div class="save-error-banner">{saveError}</div>
+            </template>
+
+            <div class="action-bar space-between" style="margin-top:20px">
+                <button class="btn-secondary" onclick={goBack} disabled={isLoading}>‹ Back</button>
+                <button class="btn-primary-navy" onclick={handlePublish} disabled={isLoading}>
+                    <template lwc:if={isLoading}>Saving…</template>
+                    <template lwc:else>Submit Event ›</template>
+                </button>
+            </div>
+        </template>
+
+        <!-- ═══ STEP 4 – Success ══════════════════════════════════════════════ -->
+        <template lwc:if={isStep4}>
+            <div class="success-card">
+                <div class="success-icon-wrap">✓</div>
+                <h2 class="success-heading">Event Published!</h2>
+                <p class="success-sub"><strong>{eventName}</strong> has been created in Salesforce.</p>
+
+                <!-- Created records summary -->
+                <div class="success-records">
+                    <!-- Event__c -->
+                    <div class="success-record-row">
+                        <div class="success-record-icon" style="background:#003777">📅</div>
+                        <div class="success-record-info">
+                            <span class="success-record-type">Event__c</span>
+                            <span class="success-record-name">{eventName}</span>
+                        </div>
+                        <span class="success-record-id">{publishedEventId}</span>
+                    </div>
+                    <!-- Campaign -->
+                    <div class="success-record-row">
+                        <div class="success-record-icon" style="background:#229492">📣</div>
+                        <div class="success-record-info">
+                            <span class="success-record-type">Campaign</span>
+                            <span class="success-record-name">{publishedCampaignName}</span>
+                        </div>
+                        <span class="success-record-id">{publishedCampaignId}</span>
+                    </div>
+                    <!-- Track__c rows -->
+                    <div class="success-record-row">
+                        <div class="success-record-icon" style="background:#6fbd4b">🎫</div>
+                        <div class="success-record-info">
+                            <span class="success-record-type">Track__c</span>
+                            <span class="success-record-name">{trackCount} ticket track(s) created</span>
+                        </div>
+                        <span class="success-record-id">linked to Event</span>
+                    </div>
+                </div>
+
+                <button class="btn-primary" onclick={handleReset}>Create Another Event</button>
+            </div>
+        </template>
+
+    </div><!-- /page-content -->
+
+    <!-- ═══ New Venue Modal ═══════════════════════════════════════════════════ -->
+    <template lwc:if={showVenueModal}>
+        <div class="modal-overlay" onclick={closeVenueModal}>
+            <div class="modal" onclick={stopProp}>
+
+                <div class="modal-header">
+                    <div class="modal-header-left">
+                        <div class="modal-icon">🏢</div>
+                        <div>
+                            <h2 class="modal-title">New Venue</h2>
+                            <p class="modal-subtitle">Creates a Venue__c record in Salesforce</p>
+                        </div>
+                    </div>
+                    <button class="modal-close" onclick={closeVenueModal}>✕</button>
+                </div>
+
+                <div class="modal-body">
+
+                    <!-- Venue Name + Venue Type -->
+                    <div class="field-row">
+                        <div class="field-group">
+                            <label class="field-label">Venue Name<span class="req-star">*</span></label>
+                            <!-- API: Name (standard) -->
+                            <input type="text" class="field-input" data-field="venueModalName"
+                                   value={venueModalName} placeholder="e.g. Grand Hyatt Chicago"
+                                   oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                            <template lwc:if={venueErrors.name}><p class="field-error">{venueErrors.name}</p></template>
+                        </div>
+                        <div class="field-group">
+                            <label class="field-label">Venue Type<span class="req-star">*</span></label>
+                            <!-- API: Venue_Type__c (picklist) -->
+                            <select class="field-select" data-field="venueModalType"
+                                    onchange={handleVenueModalInput} onfocus={onFocus} onblur={onBlur}>
+                                <option value="" disabled hidden>Select type</option>
+                                <template for:each={venueTypeOptions} for:item="opt">
+                                    <option key={opt.value} value={opt.value} selected={opt.selected}>{opt.label}</option>
+                                </template>
+                            </select>
+                            <template lwc:if={venueErrors.type}><p class="field-error">{venueErrors.type}</p></template>
+                        </div>
+                    </div>
+
+                    <div class="modal-divider"></div>
+
+                    <!-- Address -->
+                    <div class="modal-sub-section">
+                        <div class="sub-section-header teal">Address</div>
+                        <div class="field-stack">
+                            <div class="field-group">
+                                <label class="field-label">Street Address 1<span class="req-star">*</span></label>
+                                <!-- API: Street_Address_1__c -->
+                                <input type="text" class="field-input" data-field="venueModalAddress1"
+                                       value={venueModalAddress1} placeholder="123 Main St"
+                                       oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                                <template lwc:if={venueErrors.address1}><p class="field-error">{venueErrors.address1}</p></template>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">Street Address 2</label>
+                                <!-- API: Street_Address_2__c -->
+                                <input type="text" class="field-input" data-field="venueModalAddress2"
+                                       value={venueModalAddress2} placeholder="Suite 200, Floor 3…"
+                                       oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                            </div>
+                            <div class="field-row city-row">
+                                <div class="field-group city-field">
+                                    <label class="field-label">City<span class="req-star">*</span></label>
+                                    <!-- API: City__c -->
+                                    <input type="text" class="field-input" data-field="venueModalCity"
+                                           value={venueModalCity} placeholder="Chicago"
+                                           oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                                    <template lwc:if={venueErrors.city}><p class="field-error">{venueErrors.city}</p></template>
+                                </div>
+                                <div class="field-group state-field">
+                                    <label class="field-label">State<span class="req-star">*</span></label>
+                                    <!-- API: State__c -->
+                                    <input type="text" class="field-input" data-field="venueModalState"
+                                           value={venueModalState} placeholder="IL"
+                                           oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                                    <template lwc:if={venueErrors.state}><p class="field-error">{venueErrors.state}</p></template>
+                                </div>
+                                <div class="field-group zip-field">
+                                    <label class="field-label">Postal Code<span class="req-star">*</span></label>
+                                    <!-- API: Postal_Code_Zip__c -->
+                                    <input type="text" class="field-input" data-field="venueModalZip"
+                                           value={venueModalZip} placeholder="60018"
+                                           oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                                    <template lwc:if={venueErrors.zip}><p class="field-error">{venueErrors.zip}</p></template>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="modal-divider"></div>
+
+                    <!-- Additional Details -->
+                    <div class="modal-sub-section">
+                        <div class="sub-section-header green">Additional Details</div>
+                        <div class="field-stack">
+                            <div class="field-row">
+                                <div class="field-group">
+                                    <label class="field-label">Venue Capacity</label>
+                                    <!-- API: Venue_Capacity__c (textarea) -->
+                                    <input type="text" class="field-input" data-field="venueModalCapacity"
+                                           value={venueModalCapacity} placeholder="e.g. 2000"
+                                           oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur} />
+                                </div>
+                                <div class="field-group">
+                                    <label class="field-label">Primary Contact</label>
+                                    <!-- API: Primary_Contact__c → reference to Contact -->
+                                    <div class="lookup-wrap">
+                                        <span class="lookup-icon">⌕</span>
+                                        <input type="text" class="field-input lookup-input"
+                                               value={venueModalContactName} placeholder="Search contacts…"
+                                               oninput={handleContactSearch} onfocus={onFocus} onblur={onBlur} />
+                                        <template lwc:if={venueModalContactName}>
+                                            <button class="lookup-clear" onclick={clearContact}>✕</button>
+                                        </template>
+                                    </div>
+                                    <template lwc:if={contactResults.length}>
+                                        <div class="lookup-dropdown">
+                                            <template for:each={contactResults} for:item="r">
+                                                <div key={r.id} class="lookup-option"
+                                                     data-id={r.id} data-name={r.name} onclick={selectContact}>
+                                                    <span class="lookup-opt-name">{r.name}</span>
+                                                    <span class="lookup-opt-sub">{r.subtitle}</span>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                            <div class="field-group">
+                                <label class="field-label">Notes</label>
+                                <!-- API: Notes__c -->
+                                <textarea class="field-input field-textarea" data-field="venueModalNotes"
+                                          placeholder="Any additional information about this venue…"
+                                          oninput={handleVenueModalInput} onfocus={onFocus} onblur={onBlur}>{venueModalNotes}</textarea>
+                            </div>
+                            <!-- Save error from Apex -->
+                            <template lwc:if={venueErrors.save}>
+                                <div class="save-error-banner">{venueErrors.save}</div>
+                            </template>
+                        </div>
+                    </div>
+
+                </div><!-- /modal-body -->
+
+                <div class="modal-footer">
+                    <p class="modal-req-note">Fields marked <span class="req-star">*</span> are required</p>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" onclick={closeVenueModal} disabled={isLoading}>Cancel</button>
+                        <button class="btn-teal" onclick={handleSaveVenue} disabled={isLoading}>
+                            <template lwc:if={isLoading}>Saving…</template>
+                            <template lwc:else>+ Save Venue</template>
+                        </button>
+                    </div>
+                </div>
+
+            </div><!-- /modal -->
+        </div><!-- /modal-overlay -->
+    </template>
+
+</template>

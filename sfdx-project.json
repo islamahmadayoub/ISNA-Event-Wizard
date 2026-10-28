@@ -1,0 +1,7 @@
+{
+  "packageDirectories": [{ "path": "force-app", "default": true }],
+  "name": "isna-event-wizard",
+  "namespace": "",
+  "sfdcLoginUrl": "https://isna2024.my.salesforce.com",
+  "sourceApiVersion": "62.0"
+}
